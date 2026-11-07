@@ -41,6 +41,8 @@
   .review li { padding:6px 0; border-top:1px solid #f1dcc2; font-size:.95rem; }
   .practice { margin-top:14px; padding-top:10px; border-top:2px dashed #e5d3ba; }
   .cpbadge { display:inline-block; background:var(--gold); color:#fff; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; padding:2px 7px; border-radius:6px; vertical-align:2px; }
+  .back { font:inherit; font-size:.9rem; background:none; border:none; color:var(--teal); cursor:pointer; padding:0; margin:0 0 8px; text-decoration:underline; }
+  .back:hover { color:#2b5962; }
   .note { background:var(--peach); border-radius:8px; padding:8px 10px; margin-top:10px; font-size:.92rem; }
 </style>
 </head>
@@ -144,7 +146,7 @@ function attemptKey(){ return "wu_try|"+state.name.toLowerCase()+"|"+state.title
 
 function intro(){
   const name=store.get("wu_name");
-  app.innerHTML=`
+  app.innerHTML=`${backLink()}
     <div class="top"><p class="title">${state.cp?'<span class="cpbadge">Checkpoint</span> ':""}${esc(state.title)}</p><span class="date">${esc(state.dateLabel)}</span></div>
     <p style="margin:0">${state.cp
       ? `${PER_DAY} questions on what we've been learning in class. Each one shows the answer and an explanation after you pick.`
@@ -176,7 +178,7 @@ function dots(){
 
 function ask(){
   const q=state.items[state.i];
-  app.innerHTML=`
+  app.innerHTML=`${backLink()}
     <div class="top"><p class="title">${esc(state.title)}</p><span class="date">Question ${state.i+1} of ${state.items.length}</span></div>
     ${dots()}
     <p class="skill">${esc(q.skill)}${q.calc==="Yes"?'<span class="tag">Calculator OK</span>':""}</p>
@@ -218,7 +220,7 @@ function finish(){
               <p class="muted">Opens a form with your score filled in. Press <b>Submit</b> on the form.</p>`;
     }
   }
-  app.innerHTML=`
+  app.innerHTML=`${backLink()}
     <div class="top"><p class="title">${esc(state.title)}${esc(tryLabel)}</p><span class="date">${esc(state.dateLabel)}</span></div>
     ${dots()}
     <p class="score">${right} / ${total}</p>
@@ -235,16 +237,27 @@ function finish(){
   };
 }
 
-function noWarmup(msg, past, unit){
-  const opts=past.slice(-15).reverse().map(d=>{const t=d.wu||d.cp; return `<option value="${esc(t)}|${esc(d.label)}">${esc(d.label)} — ${esc(t)}</option>`;}).join("");
+/* ---------- home screen: today's warm-up + past ones to choose from ---------- */
+let HOME={today:null,msg:"",past:[]};
+function go(title,label){ try{ history.pushState({wu:title},""); }catch(e){} begin(title,label); }
+function backHome(){ if(history.state && history.state.wu){ history.back(); } else home(); }
+window.addEventListener("popstate",()=>home());
+app.addEventListener("click",e=>{ if(e.target.closest(".back")) backHome(); });
+const backLink=()=>`<button class="back" type="button">← All warm-ups</button>`;
+
+function home(){
+  const t=HOME.today;
+  const opts=HOME.past.slice(-20).reverse().map(d=>{const x=d.wu||d.cp; return `<option value="${esc(x)}|${esc(d.label)}">${esc(d.label)} — ${esc(x)}</option>`;}).join("");
   app.innerHTML=`
-    <p class="title" style="margin:0 0 6px">Warm Up</p>
-    <p style="margin:0">${msg}</p>
-    ${opts?`<label for="mk">Missed a warm-up or checkpoint? Make it up:</label>
-      <select id="mk"><option value="">Choose a day…</option>${opts}</select>`:""}
-`;
+    <p class="title" style="margin:0 0 6px">Warm Ups</p>
+    ${t?`<p style="margin:0">Today, ${esc(t.label)}:</p>
+         <button class="btn" id="today">${cpCode(t.title)?'<span class="cpbadge">Checkpoint</span> ':""}Start ${esc(t.title)}</button>`
+       :`<p style="margin:0">${HOME.msg}</p>`}
+    ${opts?`<label for="mk">Do a different day's warm-up or checkpoint:</label>
+      <select id="mk"><option value="">Choose a day…</option>${opts}</select>`:""}`;
+  const tb=document.getElementById("today"); if(tb) tb.onclick=()=>go(t.title,t.label);
   const mk=document.getElementById("mk");
-  if(mk) mk.onchange=()=>{ if(!mk.value) return; const [wu,label]=mk.value.split("|"); begin(wu,label); };
+  if(mk) mk.onchange=()=>{ if(!mk.value) return; const [x,label]=mk.value.split("|"); go(x,label); };
 }
 
 const getCSV=url=>fetch(url+"&t="+Date.now()).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(parseCSV);
@@ -294,18 +307,21 @@ Promise.all([getCSV(CSV_URL), getCSV(BANK_URL), getCSV(QUIZ_URL)])
   const past=days.filter(x=>x.d<today && (parseWU(x.wu)||cpCode(x.cp)));
   const lastUnit=(()=>{const w=[...days].filter(x=>x.d<=today && parseWU(x.wu)).pop()||days.find(x=>parseWU(x.wu)); return w?parseWU(w.wu).unit:"";})();
 
-  const asked=P.get("wu");     // ?wu=WU%20C2U5.3a or ?wu=Checkpoint%20U3-A opens that one
-  if(asked && ok(asked)){
-    const day=days.find(x=>x.wu===asked||x.cp===asked);
-    return begin(asked, day?day.label:"");
-  }
   const t=days.find(x=>x.d.getTime()===today.getTime());
-  if(t && cpCode(t.cp)) return begin(t.cp,t.label);
-  if(t && parseWU(t.wu)) return begin(t.wu,t.label);
+  const todayTitle=t?(cpCode(t.cp)?t.cp:(parseWU(t.wu)?t.wu:"")):"";
   let msg="There's no warm-up today.";
   if(!t) msg="There's no class today, so there's no warm-up.";
   else if(/no school/i.test(t.topic)) msg="There's no school today.";
-  noWarmup(msg, past, lastUnit);
+  HOME={today:todayTitle?{title:todayTitle,label:t.label}:null,msg,past};
+  try{ history.replaceState({home:1},""); }catch(e){}
+
+  const asked=P.get("wu");     // ?wu=WU%20C2U5.3a or ?wu=Checkpoint%20U3-A opens that one
+  if(asked && ok(asked)){
+    const day=days.find(x=>x.wu===asked||x.cp===asked);
+    return go(asked, day?day.label:"");
+  }
+  if(HOME.today) return go(HOME.today.title, HOME.today.label);
+  home();
  })
  .catch(()=>{ app.innerHTML=`<p class="title">Warm Up</p><p>Couldn't load today's warm-up. Refresh the page or tell your teacher.</p>`; });
 </script>
